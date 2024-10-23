@@ -1,1 +1,206 @@
+Create database Transactions_db
+use Transactions_db
+
+
+
+Create table CUSTOMERS
+(customer_id int primary key,
+Name varchar(100),
+active bit)
+
+CREATE TABLE orders
+(order_id int primary key,
+customer_id int foreign key references Customers (customer_id), 
+order_status varchar(100))
+
+insert into CUSTOMERS values(1, 'Pam', 1),(2, 'Kim', 1)
+insert into orders values (101,1, 'Pending'),(102,2, 'Pending')
+
+select * from CUSTOMERS
+select * from orders
+
+
+BEGIN TRANSACTION
+UPDATE CUSTOMERS SET Name='John'
+WHERE customer_id=1
+
+WAITFOR DELAY '00:00:05';
+UPDATE orders SET order_status=' Processed'
+WHERE order_id=101
+
+COMMIT TRANSACTION
+
+
+
+BEGIN TRANSACTION
+UPDATE orders SET order_status= 'Shipped'
+WHERE order_id=101
+
+WAITFOR DELAY '00:00:05';
+UPDATE CUSTOMERS SET Name='Geetha'
+WHERE customer_id=1
+
+COMMIT TRANSACTION
+
+select * from CUSTOMERS
+ 
+
+select * from orders
+
+
+
+
+--7) Create a trigger to updates the Stock (quantity) table whenever new order placed in orders tables
+
+CREATE TRIGGER trg_UpdateStockOnNewOrder
+ON sales.order_items
+AFTER INSERT
+AS
+BEGIN
+    DECLARE @ProductID INT, @Quantity INT, @StoreID INT;
+
+    SELECT @ProductID = i.product_id, @Quantity = i.quantity, @StoreID = o.store_id
+    FROM inserted i
+    INNER JOIN sales.orders o ON i.order_id = o.order_id;
+
+    UPDATE production.stocks
+    SET quantity = quantity - @Quantity
+    WHERE product_id = @ProductID AND store_id = @StoreID;
+    BEGIN
+        PRINT 'Warning: Stock has gone negative for product ';
+    END
+END;
+
+
+select * from sales.orders
+
+
+--8) Create a trigger to that prevents deletion of a customer if they have existing orders.
+
+CREATE TRIGGER preventsDeletionOfCustomer
+ON sales.customers
+INSTEAD OF DELETE
+AS 
+BEGIN
+    DECLARE @customerId INT;
+
+    -- Get the customer ID of the customer to be deleted
+    SELECT @customerId = customer_id FROM deleted;
+
+    --  existing orders
+    IF EXISTS (SELECT 1 FROM sales.orders WHERE customer_id = @customerId)
+    BEGIN
+        -- Raise an error if the customer has existing orders
+        RAISERROR('Cannot delete customer with existing orders.', 16, 1);
+        ROLLBACK; -- Rollback the deletion
+    END
+    ELSE
+    BEGIN
+        -- If no existing orders, proceed with the deletion
+        DELETE FROM sales.customers WHERE customer_id = @customerId;
+    END
+END;
+
+
+
+
+
+
+
+
+
+
+
+--9) Create Employee,Employee_Audit  insert some test data
+CREATE TABLE Employee2 (
+    EmpID INT PRIMARY KEY,
+    EmpName VARCHAR(100),
+    Salary INT,
+    Position VARCHAR(50)
+);
+
+CREATE TABLE Employee_Audit (
+    AuditID INT IDENTITY(1,1) PRIMARY KEY,
+    EmpID INT,
+    ChangeType VARCHAR(10),  
+    OldSalary INT,
+    NewSalary INT,
+    ChangeDate DATETIME DEFAULT GETDATE()
+);
+
+INSERT INTO Employee2 (EmpID, EmpName, Salary, Position)
+VALUES 
+(1, 'John Doe', 60000, 'Manager'),
+(2, 'Jane Smith', 50000, 'Analyst'),
+(3, 'David Brown', 45000, 'Developer');
+--	b) Create a Trigger that logs changes to the Employee Table into an Employee_Audit Table
+
+CREATE TRIGGER trg_LogEmployeeChanges
+ON Employee2
+AFTER UPDATE
+AS
+BEGIN
+    INSERT INTO Employee_Audit (EmpID, ChangeType, OldSalary, NewSalary)
+    SELECT i.EmpID,'UPDATE',d.Salary AS OldSalary, i.Salary AS NewSalary
+    FROM inserted i
+    INNER JOIN deleted d ON i.EmpID = d.EmpID
+    WHERE i.Salary <> d.Salary;
+
+    PRINT 'Employee salary change logged in Employee_Audit table.';
+END;
+
+UPDATE Employee2
+SET Salary = 65000
+WHERE EmpID = 1;
+
+SELECT * FROM Employee_Audit;
+
+--10) create Room Table with below columns RoomID,RoomType,Availability 
+--create Bookins Table with below columns BookingID,RoomID,CustomerName,CheckInDate,CheckInDate
+CREATE TABLE Room (
+    RoomID INT PRIMARY KEY,
+    RoomType VARCHAR(50),
+    Availability BIT  
+);
+CREATE TABLE Bookings (
+    BookingID INT PRIMARY KEY IDENTITY(1,1), 
+    RoomID INT,
+    CustomerName VARCHAR(100),
+    CheckInDate DATE,
+    CheckOutDate DATE,
+    FOREIGN KEY (RoomID) REFERENCES Room(RoomID)
+);
+
+--Insert some test data with both  the tables
+INSERT INTO Room (RoomID, RoomType, Availability)
+VALUES 
+(1, 'Single', 1),  
+(2, 'Double', 1),  
+(3, 'Suite', 1);
+--Ensure both the tables are having Entity relationship
+select * from Room
+select * from Bookings
+--Insert some test data with both  the tables Ensure both the tables are having Entity relationship
+--Write a transaction that books a room for a customer, ensuring the room is marked as unavailable.
+BEGIN TRANSACTION
+    IF EXISTS (SELECT 1 FROM Room WHERE RoomID = 1 AND Availability = 1)
+    BEGIN
+        INSERT INTO Bookings (RoomID, CustomerName, CheckInDate, CheckOutDate)
+        VALUES (2, 'Karim Benzema', '2024-10-24', '2024-10-28');
+        UPDATE Room
+        SET Availability = 0
+        WHERE RoomID = 1;
+        COMMIT TRANSACTION;
+        PRINT 'Room booked successfully and marked as unavailable.';
+    END
+    ELSE
+    BEGIN
+        PRINT 'Room is already booked or unavailable.';
+        ROLLBACK TRANSACTION;
+END
+
+--Testing
+select * from Room
+select * from Bookings
+
 
